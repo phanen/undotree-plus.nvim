@@ -47,13 +47,37 @@ end
 M.diff_win = nil ---@type integer
 M.diff_buf = nil ---@type integer
 
+M.render_gitsigns = pcall(require, 'gitsigns')
+    and require('gitsigns.async').create(3, function(buf, a, b)
+      local hunks = require('gitsigns.diff_int').run_diff(a, b, true)
+      require('gitsigns.async').schedule()
+      local ff = vim.bo[buf].fileformat
+      local hunk_to_linespec = function(h) return require('gitsigns.hunks').linespec_for_hunk(h, ff) end
+      local linespec = {}
+      for _, hunk in ipairs(hunks) do
+        vim.list_extend(linespec, hunk_to_linespec(hunk))
+      end
+      local opts = vim.deepcopy(require('gitsigns.config').config.preview_config)
+      local curbuf = api.nvim_get_current_buf()
+      if true then
+        opts.relative = 'tabline'
+        opts.col = opts.col + 30
+      elseif vim.b[curbuf].nvim_is_undotree then
+        opts.col = opts.col + 20
+      end
+      pcall(api.nvim_win_close, M.diff_win, true)
+      M.diff_win = require('gitsigns.popup').create(linespec, opts, 'hunk')
+    end)
+  or nil
+
 ---@param buf integer
 ---@param n integer
 function M.render_diff(buf, n)
   local before_ctx = M.get_context(buf, n - 1)
   local cur_ctx = M.get_context(buf, n)
+  ---@diagnostic disable-next-line: incomplete-signature-doc, param-type-mismatch
+  if true and M.render_gitsigns then return M.render_gitsigns(buf, before_ctx, cur_ctx) end
   local diff = M.get_diff(before_ctx, cur_ctx)
-
   M.diff_buf = M.diff_buf and api.nvim_buf_is_valid(M.diff_buf) and M.diff_buf
     or api.nvim_create_buf(false, true)
   if vim.bo[M.diff_buf].syntax ~= 'diff' then vim.bo[M.diff_buf].syntax = 'diff' end
