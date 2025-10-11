@@ -67,6 +67,9 @@ M.render_gitsigns = pcall(require, 'gitsigns')
       end
       pcall(api.nvim_win_close, M.diff_win, true)
       M.diff_win = require('gitsigns.popup').create(linespec, opts, 'hunk')
+      if api.nvim_win_get_config(M.diff_win).height > 10 then
+        api.nvim_win_set_config(M.diff_win, 10)
+      end
     end)
   or nil
 
