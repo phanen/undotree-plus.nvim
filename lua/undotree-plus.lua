@@ -67,8 +67,9 @@ M.render_gitsigns = pcall(require, 'gitsigns')
       end
       pcall(api.nvim_win_close, M.diff_win, true)
       M.diff_win = require('gitsigns.popup').create(linespec, opts, 'hunk')
+      M.diff_buf = api.nvim_win_get_buf(M.diff_win)
       api.nvim_clear_autocmds({
-        event = 'CursorMoved',
+        event = { 'CursorMoved', 'WinScrolled' },
         group = api.nvim_create_augroup('gitsigns_popup', { clear = false }),
       })
       local height = api.nvim_win_get_config(M.diff_win).height
@@ -76,7 +77,7 @@ M.render_gitsigns = pcall(require, 'gitsigns')
         api.nvim_win_set_config(M.diff_win, { height = 10 })
         local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
         if lang and vim.treesitter.language.add(lang) then
-          vim.treesitter.start(api.nvim_win_get_buf(M.diff_win), lang)
+          vim.treesitter.start(M.diff_buf, lang)
         end
       end
     end)
