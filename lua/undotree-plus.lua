@@ -65,16 +65,28 @@ M.render_gitsigns = pcall(require, 'gitsigns')
       elseif vim.b[curbuf].nvim_is_undotree then
         opts.col = opts.col + 20
       end
-      pcall(api.nvim_win_close, M.diff_win, true)
-      M.diff_win = require('gitsigns.popup').create(linespec, opts, 'hunk')
+      local reuse = M.diff_win
+        and M.diff_buf
+        and api.nvim_win_is_valid(M.diff_win)
+        and api.nvim_buf_is_valid(M.diff_buf)
+      if reuse then
+        require('gitsigns.popup').update(M.diff_win, M.diff_buf, linespec, opts, 'hunk')
+      else
+        pcall(api.nvim_win_close, M.diff_win, true)
+        M.diff_win = require('gitsigns.popup').create(linespec, opts)
+        api.nvim_clear_autocmds({
+          event = { 'CursorMoved', 'WinScrolled' },
+          group = api.nvim_create_augroup('gitsigns_popup', { clear = false }),
+        })
+      end
       M.diff_buf = api.nvim_win_get_buf(M.diff_win)
-      api.nvim_clear_autocmds({
-        event = { 'CursorMoved', 'WinScrolled' },
-        group = api.nvim_create_augroup('gitsigns_popup', { clear = false }),
-      })
-      local height = api.nvim_win_get_config(M.diff_win).height
-      if height > 10 then
-        api.nvim_win_set_config(M.diff_win, { height = 10 })
+      local config = api.nvim_win_get_config(M.diff_win)
+      local max_width, max_height = vim.o.columns - 30 - 2, 10
+      api.nvim_win_set_config(
+        M.diff_win,
+        { width = math.min(config.width, max_width), height = math.min(config.height, max_height) }
+      )
+      if config.height > max_height then
         local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
         if lang and vim.treesitter.language.add(lang) then
           vim.treesitter.start(M.diff_buf, lang)
