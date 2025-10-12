@@ -65,12 +65,15 @@ M.render_gitsigns = pcall(require, 'gitsigns')
       elseif vim.b[curbuf].nvim_is_undotree then
         opts.col = opts.col + 20
       end
-      local reuse = M.diff_win
+      if
+        false
+        and M.diff_win
         and M.diff_buf
         and api.nvim_win_is_valid(M.diff_win)
         and api.nvim_buf_is_valid(M.diff_buf)
-      if reuse then
+      then
         require('gitsigns.popup').update(M.diff_win, M.diff_buf, linespec, opts, 'hunk')
+        if api.nvim__redraw then api.nvim__redraw({ win = M.diff_win, flush = true }) end
       else
         pcall(api.nvim_win_close, M.diff_win, true)
         M.diff_win = require('gitsigns.popup').create(linespec, opts)
