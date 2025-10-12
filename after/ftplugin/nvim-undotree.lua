@@ -21,10 +21,18 @@ local new_text_changed = function(buf)
   )
 end
 
+local destroy = vim.F.nil_wrap(function()
+  api.nvim_del_augroup_by_name('nvim.undotree') -- to totally avoid error we have to hijack plugin autocmd
+  api.nvim_clear_autocmds({ group = api.nvim_create_augroup('nvim.undotree', { clear = false }) })
+  api.nvim_win_close(u.undo.diff_win, true)
+  api.nvim_clear_autocmds({ group = group })
+end)
+
 local on_text_changed
 render_diff = vim.schedule_wrap(function()
-  if not api.nvim_buf_is_valid(ut_buf) then return end
+  if not api.nvim_buf_is_valid(ut_buf) then return destroy() end
   local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
+  if not api.nvim_buf_is_valid(buf) then return destroy() end
   -- only create on new buf
   on_text_changed = on_text_changed or new_text_changed(buf)
   local ut_win = assert(vim.b[buf].nvim_undotree)
@@ -41,12 +49,13 @@ api.nvim_create_autocmd('CursorMoved', {
 api.nvim_create_autocmd('BufEnter', {
   group = group,
   callback = vim.schedule_wrap(function(ev)
-    if not api.nvim_buf_is_valid(ut_buf) then return true end
+    if not api.nvim_buf_is_valid(ut_buf) then return destroy() end
     local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
     if
-      not api.nvim_buf_is_valid(ev.buf)
-      or ev.buf == ut_buf
+      ev.buf == ut_buf
       or ev.buf == buf
+      or not api.nvim_buf_is_valid(ev.buf)
+      or not api.nvim_buf_is_valid(buf)
       or vim.bo[ev.buf].bt ~= ''
     then
       return
@@ -58,11 +67,6 @@ api.nvim_create_autocmd('BufEnter', {
     render_diff()
   end),
 })
-
-local destroy = vim.F.nil_wrap(function()
-  api.nvim_win_close(u.undo.diff_win, true)
-  api.nvim_del_augroup_by_id(group)
-end)
 
 api.nvim_create_autocmd({ 'WinClosed', 'BufWinLeave' }, {
   buffer = ut_buf,
