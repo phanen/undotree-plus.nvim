@@ -1,3 +1,6 @@
+local u = {
+  debounce = require('undotree-plus.debounce'),
+}
 ---START INJECT undo.lua
 
 local api, fn = vim.api, vim.fn
@@ -100,7 +103,7 @@ M.render_gitsigns = pcall(require, 'gitsigns')
 
 ---@param buf integer
 ---@param n integer
-function M.render_diff(buf, n)
+local render_diff = function(buf, n)
   local before_ctx = M.get_context(buf, n - 1)
   local cur_ctx = M.get_context(buf, n)
   ---@diagnostic disable-next-line: incomplete-signature-doc, param-type-mismatch
@@ -120,6 +123,9 @@ function M.render_diff(buf, n)
       relative = 'tabline',
     })
 end
+
+M.render_diff =
+  u.debounce.debounce_trailing(150, u.debounce.throttle_by_id(2, vim.schedule_wrap(render_diff)))
 
 M.undotree_title = function(buf) return 'undotree://' .. tostring(buf) end
 

@@ -1,6 +1,6 @@
 Snippets to enhance neovim builtin undotree (https://github.com/neovim/neovim/pull/35627).
 
-* Diff window (simple diff filetype or use gitsigns).
+* Diff window (diff syntax or use gitsigns, with debounce delay).
 * Switch on buffer change.
 * Treesitter highlight.
 
@@ -10,3 +10,4 @@ nvim --cmd "set rtp^=. rtp+=./after undofile" README.md +'lua require"undotree-p
 
 ## credit
 https://github.com/XXiaoA/atone.nvim
+https://github.com/lewis6991/gitsigns.nvim
