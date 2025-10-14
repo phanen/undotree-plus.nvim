@@ -132,25 +132,42 @@ M.undotree_title = function(buf) return 'undotree://' .. tostring(buf) end
 M.buf_from_title = function(title) return tonumber(title:match('undotree://(%d+)')) end
 
 ---@param buf integer
+local delete_alt_buf = function(buf)
+  local alt = api.nvim_buf_call(buf, function() return fn.bufnr('#') end)
+  if alt ~= buf and alt ~= -1 then pcall(api.nvim_buf_delete, alt, { force = true }) end
+end
+
+---@param buf? integer
+local clear_alt_buf = function(buf)
+  buf = buf or vim._resolve_bufnr(buf)
+  local tmpbuf = api.nvim_create_buf(false, true)
+  api.nvim_buf_call(buf, function() fn.setreg('#', tmpbuf) end)
+  api.nvim_buf_delete(tmpbuf, { force = true })
+end
+
+---@param buf integer
 ---@param name string
 M.buf_rename = function(buf, name)
   vim._with({ noautocmd = true }, function()
     api.nvim_buf_set_name(buf, name)
-    local alt = api.nvim_buf_call(buf, function() return fn.bufnr('#') end)
-    if alt ~= buf and alt ~= -1 then pcall(api.nvim_buf_delete, alt, { force = true }) end
+    delete_alt_buf(buf)
   end)
 end
 
 function M.open(opts)
   opts = opts or {}
   pcall(vim.cmd.packadd, 'nvim.undotree')
-  if opts.buf then M.buf_rename(opts.buf, M.undotree_title(api.nvim_get_current_buf())) end
-  require('undotree').open({
-    command = 'topleft 30vnew',
-    title = M.undotree_title,
-    bufnr = opts.buf,
-    winid = opts.win,
-  })
+  local create = not opts.buf
+  if create then
+    vim.cmd('topleft 30vnew')
+    clear_alt_buf()
+    opts.buf = api.nvim_get_current_buf()
+    opts.win = api.nvim_get_current_win()
+    vim.cmd.wincmd('w')
+  end
+  M.buf_rename(opts.buf, M.undotree_title(api.nvim_get_current_buf()))
+  require('undotree').open({ title = M.undotree_title, bufnr = opts.buf, winid = opts.win })
+  if create then vim.cmd.wincmd('w') end
 end
 
 return M
