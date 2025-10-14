@@ -12,6 +12,7 @@ local u = {
 
 local ut_buf = api.nvim_get_current_buf()
 local group = api.nvim_create_augroup('my.nvim.undotree', {})
+local group0 = api.nvim_create_augroup('nvim.undotree', { clear = false })
 
 local render_diff
 local new_text_changed = function(buf)
@@ -22,9 +23,8 @@ local new_text_changed = function(buf)
 end
 
 local destroy = vim.F.nil_wrap(function()
-  api.nvim_del_augroup_by_name('nvim.undotree') -- to totally avoid error we have to hijack plugin autocmd
-  api.nvim_clear_autocmds({ group = api.nvim_create_augroup('nvim.undotree', { clear = false }) })
   api.nvim_win_close(u.undo.diff_win, true)
+  api.nvim_clear_autocmds({ group = group0 })
   api.nvim_clear_autocmds({ group = group })
 end)
 
@@ -32,7 +32,8 @@ local on_text_changed
 render_diff = vim.schedule_wrap(function()
   if not api.nvim_buf_is_valid(ut_buf) then return destroy() end
   local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
-  if not api.nvim_buf_is_valid(buf) then return destroy() end
+  -- -- :tabnew file, undotree, :bd!
+  if not api.nvim_buf_is_loaded(buf) then return destroy() end
   -- only create on new buf
   on_text_changed = on_text_changed or new_text_changed(buf)
   local ut_win = assert(vim.b[buf].nvim_undotree)
@@ -40,10 +41,18 @@ render_diff = vim.schedule_wrap(function()
   u.undo.render_diff(buf, u.asinteger(line:match('%d+')))
 end)
 
+local hijack = api.nvim_get_autocmds({ group = group0, buffer = ut_buf, event = 'CursorMoved' })[1]
+api.nvim_clear_autocmds({ group = group0, buffer = ut_buf, event = 'CursorMoved' })
 api.nvim_create_autocmd('CursorMoved', {
   group = group,
   buffer = ut_buf,
-  callback = render_diff,
+  callback = function(ev)
+    render_diff()
+    vim.schedule(function()
+      local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
+      if api.nvim_buf_is_loaded(buf) then hijack.callback(ev) end
+    end)
+  end,
 })
 
 api.nvim_create_autocmd('BufEnter', {
