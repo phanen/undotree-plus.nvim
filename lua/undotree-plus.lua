@@ -131,9 +131,20 @@ M.undotree_title = function(buf) return 'undotree://' .. tostring(buf) end
 
 M.buf_from_title = function(title) return tonumber(title:match('undotree://(%d+)')) end
 
+---@param buf integer
+---@param name string
+M.buf_rename = function(buf, name)
+  vim._with({ noautocmd = true }, function()
+    api.nvim_buf_set_name(buf, name)
+    local alt = api.nvim_buf_call(buf, function() return fn.bufnr('#') end)
+    if alt ~= buf and alt ~= -1 then pcall(api.nvim_buf_delete, alt, { force = true }) end
+  end)
+end
+
 function M.open(opts)
   opts = opts or {}
   pcall(vim.cmd.packadd, 'nvim.undotree')
+  if opts.buf then M.buf_rename(opts.buf, M.undotree_title(api.nvim_get_current_buf())) end
   require('undotree').open({
     command = 'topleft 30vnew',
     title = M.undotree_title,
