@@ -7,7 +7,7 @@ local M = {}
 ---@param func F Function to debounce
 ---@param hash? integer|fun(...): any Function that determines id from arguments to func
 ---@return F Debounced function.
-function M.debounce_trailing(ms, func, hash)
+M.debounce_trailing = function(ms, func, hash)
   local running = {} --- @type table<any,uv.uv_timer_t>
 
   if type(hash) == 'number' then
@@ -22,7 +22,7 @@ function M.debounce_trailing(ms, func, hash)
 
   return function(...)
     local id = hash and hash(...) or true
-    if running[id] == nil then running[id] = assert(uv.new_timer()) end
+    if running[id] == nil then running[id] = assert(vim.uv.new_timer()) end
     local timer = running[id]
     local argv = { ... }
 
@@ -39,7 +39,7 @@ end
 ---@param func F Function to throttle
 ---@param schedule? boolean
 ---@return F throttled function.
-function M.throttle_by_id(argc, func, schedule)
+M.throttle_by_id = function(argc, func, schedule)
   local scheduled = {} --- @type table<any,boolean>
   local running = {} --- @type table<any,boolean>
   return function(...)

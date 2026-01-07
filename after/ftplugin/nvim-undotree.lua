@@ -33,7 +33,7 @@ render_diff = vim.schedule_wrap(function()
   if not api.nvim_buf_is_valid(ut_buf) then return destroy() end
   local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
   -- -- :tabnew file, undotree, :bd!
-  if not api.nvim_buf_is_loaded(buf) then return destroy() end
+  if not buf or not api.nvim_buf_is_loaded(buf) then return destroy() end
   -- only create on new buf
   on_text_changed = on_text_changed or new_text_changed(buf)
   local ut_win = assert(vim.b[buf].nvim_undotree)
@@ -50,6 +50,7 @@ api.nvim_create_autocmd('CursorMoved', {
     render_diff()
     vim.schedule(function()
       local buf = u.undo.buf_from_title(api.nvim_buf_get_name(ut_buf))
+      ---@diagnostic disable-next-line: need-check-nil
       if api.nvim_buf_is_loaded(buf) then hijack.callback(ev) end
     end)
   end,
@@ -71,7 +72,7 @@ api.nvim_create_autocmd('BufEnter', {
     end
     u.undo.open({ buf = ut_buf, win = vim.b[buf].nvim_undotree })
     vim.b[buf].nvim_undotree = nil
-    pcall(api.nvim_del_autocmd, on_text_changed)
+    if on_text_changed then pcall(api.nvim_del_autocmd, on_text_changed) end
     on_text_changed = new_text_changed(ev.buf)
     render_diff()
   end),

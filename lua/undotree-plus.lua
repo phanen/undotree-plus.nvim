@@ -3,41 +3,41 @@ local u = {
 }
 ---START INJECT undo.lua
 
-local api, fn = vim.api, vim.fn
+local api, fn, uv = vim.api, vim.fn, vim.uv
 local M = {}
+
+local asinteger = tonumber ---@type fun(x: any): integer
+
+---@module 'gitsigns.async'?
+local async = vim.F.npcall(require, 'gitsigns.async')
 
 ---@param buf integer
 ---@param n integer
 ---@return string[]
-function M.get_context(buf, n)
+M.get_context = function(buf, n)
   if n < 0 then return {} end
-
-  local result = {}
-  local tmp_file = fn.stdpath('cache') .. '/atone-undo'
-  local tmp_undo = tmp_file .. '.undo'
-  local tmpbuf = fn.bufadd(tmp_file)
-  vim.bo[tmpbuf].swapfile = false
-  fn.writefile(api.nvim_buf_get_lines(buf, 0, -1, false), tmp_file)
-  fn.bufload(tmpbuf)
-  api.nvim_buf_call(buf, function() vim.cmd('silent wundo! ' .. tmp_undo) end)
+  local undo = os.tmpname()
+  api.nvim_buf_call(buf, function() vim.cmd('noautocmd silent wundo! ' .. undo) end)
+  local tmpbuf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(tmpbuf, 0, -1, false, api.nvim_buf_get_lines(buf, 0, -1, false))
   vim._with(
     { buf = tmpbuf, noautocmd = true, go = { eventignore = 'all' } },
     vim.F.nil_wrap(function()
-      vim.cmd('noautocmd silent rundo ' .. tmp_undo)
+      vim.cmd('noautocmd silent rundo ' .. undo)
       vim.cmd('noautocmd silent undo ' .. n)
-      result = api.nvim_buf_get_lines(tmpbuf, 0, -1, false)
     end)
   )
+  local result = api.nvim_buf_get_lines(tmpbuf, 0, -1, false)
   api.nvim_buf_delete(tmpbuf, { force = true })
+  os.remove(undo)
   return result
 end
 
 ---@param ctx1 string[]
 ---@param ctx2 string[]
 ---@return string[]
-function M.get_diff(ctx1, ctx2)
-  ---@diagnostic disable-next-line: deprecated
-  local diff = vim.text.diff or vim.diff
+M.get_diff = function(ctx1, ctx2)
+  local diff = vim.text and vim.text.diff or vim.diff ---@diagnostic disable-line: deprecated
   local result = diff(table.concat(ctx1, '\n') .. '\n', table.concat(ctx2, '\n') .. '\n', {
     ctxlen = 3,
     ignore_cr_at_eol = true,
@@ -50,10 +50,18 @@ end
 M.diff_win = nil ---@type integer
 M.diff_buf = nil ---@type integer
 
-M.render_gitsigns = pcall(require, 'gitsigns')
-    and require('gitsigns.async').create(3, function(buf, a, b)
-      local hunks = require('gitsigns.diff_int').run_diff(a, b, true)
-      require('gitsigns.async').schedule()
+---@async
+M.get_hunks = function(buf, n)
+  local a = M.get_context(buf, n - 1)
+  local b = M.get_context(buf, n)
+  return require('gitsigns.diff_int').run_diff(a, b, true)
+end
+
+local render_gitsigns = function(...)
+  async
+    .run(function(buf, n)
+      local hunks = M.get_hunks(buf, n)
+      async.schedule()
       local ff = vim.bo[buf].fileformat
       local hunk_to_linespec = function(h) return require('gitsigns.hunks').linespec_for_hunk(h, ff) end
       local linespec = {}
@@ -61,12 +69,13 @@ M.render_gitsigns = pcall(require, 'gitsigns')
         vim.list_extend(linespec, hunk_to_linespec(hunk))
       end
       local opts = vim.deepcopy(require('gitsigns.config').config.preview_config)
+      local col = assert(opts.col)
       local curbuf = api.nvim_get_current_buf()
       if true then
         opts.relative = 'tabline'
-        opts.col = opts.col + 30
+        opts.col = col + 30
       elseif vim.b[curbuf].nvim_is_undotree then
-        opts.col = opts.col + 20
+        opts.col = col + 20
       end
       if
         false
@@ -75,7 +84,7 @@ M.render_gitsigns = pcall(require, 'gitsigns')
         and api.nvim_win_is_valid(M.diff_win)
         and api.nvim_buf_is_valid(M.diff_buf)
       then
-        require('gitsigns.popup').update(M.diff_win, M.diff_buf, linespec, opts, 'hunk')
+        require('gitsigns.popup').update(M.diff_win, M.diff_buf, linespec, opts)
         if api.nvim__redraw then api.nvim__redraw({ win = M.diff_win, flush = true }) end
       else
         pcall(api.nvim_win_close, M.diff_win, true)
@@ -98,16 +107,19 @@ M.render_gitsigns = pcall(require, 'gitsigns')
           vim.treesitter.start(M.diff_buf, lang)
         end
       end
-    end)
-  or nil
+    end, ...)
+    :raise_on_error()
+end
+
+M.render_gitsigns = async and render_gitsigns or nil
 
 ---@param buf integer
 ---@param n integer
 local render_diff = function(buf, n)
+  ---@diagnostic disable-next-line: incomplete-signature-doc, param-type-mismatch
+  if true and async then return M.render_gitsigns(buf, n) end
   local before_ctx = M.get_context(buf, n - 1)
   local cur_ctx = M.get_context(buf, n)
-  ---@diagnostic disable-next-line: incomplete-signature-doc, param-type-mismatch
-  if true and M.render_gitsigns then return M.render_gitsigns(buf, before_ctx, cur_ctx) end
   local diff = M.get_diff(before_ctx, cur_ctx)
   M.diff_buf = M.diff_buf and api.nvim_buf_is_valid(M.diff_buf) and M.diff_buf
     or api.nvim_create_buf(false, true)
@@ -129,7 +141,8 @@ M.render_diff =
 
 M.undotree_title = function(buf) return 'undotree://' .. tostring(buf) end
 
-M.buf_from_title = function(title) return tonumber(title:match('undotree://(%d+)')) end
+---@return integer
+M.buf_from_title = function(title) return asinteger(title:match('undotree://(%d+)')) end
 
 ---@param buf integer
 local delete_alt_buf = function(buf)
@@ -154,7 +167,7 @@ M.buf_rename = function(buf, name)
   end)
 end
 
-function M.open(opts)
+M.open = function(opts)
   opts = opts or {}
   pcall(vim.cmd.packadd, 'nvim.undotree')
   local create = not opts.buf
