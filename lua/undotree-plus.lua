@@ -1,11 +1,9 @@
-local u = {
-  debounce = require('undotree-plus.debounce'),
-}
 ---START INJECT undo.lua
 
-local api, fn, uv = vim.api, vim.fn, vim.uv
+local api, fn = vim.api, vim.fn
 local M = {}
 
+local concat = table.concat
 local asinteger = tonumber ---@type fun(x: any): integer
 
 ---@module 'gitsigns.async'?
@@ -33,12 +31,29 @@ M.get_context = function(buf, n)
   return result
 end
 
+---@async
+M.get_context_async = function(file, undo, n)
+  if n < 0 then return {} end
+  local obj = async.await(3, vim.system, {
+    vim.v.progname,
+    '-n',
+    '--clean',
+    '--headless',
+    '+0r ' .. file,
+    ('+noau sil! rundo %s | noau sil! undo %d'):format(undo, n),
+    '+lua io.stdout:write(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\\n"))', -- nlua: ignore
+    '+qa!',
+  })
+  local result = vim.split(obj.stdout, '\n')
+  return result
+end
+
 ---@param ctx1 string[]
 ---@param ctx2 string[]
 ---@return string[]
 M.get_diff = function(ctx1, ctx2)
   local diff = vim.text and vim.text.diff or vim.diff ---@diagnostic disable-line: deprecated
-  local result = diff(table.concat(ctx1, '\n') .. '\n', table.concat(ctx2, '\n') .. '\n', {
+  local result = diff(concat(ctx1, '\n') .. '\n', concat(ctx2, '\n') .. '\n', {
     ctxlen = 3,
     ignore_cr_at_eol = true,
     ignore_whitespace_change_at_eol = true,
@@ -117,27 +132,37 @@ M.render_gitsigns = async and render_gitsigns or nil
 ---@param n integer
 local render_diff = function(buf, n)
   ---@diagnostic disable-next-line: incomplete-signature-doc, param-type-mismatch
-  if true and async then return M.render_gitsigns(buf, n) end
+  if not vim.F.nil_wrap(require)('diffs') and async then return M.render_gitsigns(buf, n) end
   local before_ctx = M.get_context(buf, n - 1)
   local cur_ctx = M.get_context(buf, n)
   local diff = M.get_diff(before_ctx, cur_ctx)
   M.diff_buf = M.diff_buf and api.nvim_buf_is_valid(M.diff_buf) and M.diff_buf
-    or api.nvim_create_buf(false, true)
-  if vim.bo[M.diff_buf].syntax ~= 'diff' then vim.bo[M.diff_buf].syntax = 'diff' end
+    or (function()
+      local diff_buf = api.nvim_create_buf(false, true)
+      vim.bo[diff_buf].filetype = 'diff'
+      return diff_buf
+    end)()
+  local name = vim.fs.basename(api.nvim_buf_get_name(buf))
+  if name and #name > 0 then table.insert(diff, 1, ('diff --git a/%s b/%s'):format(name, name)) end
   api.nvim_buf_set_lines(M.diff_buf, 0, -1, true, diff)
   M.diff_win = M.diff_win and api.nvim_win_is_valid(M.diff_win) and M.diff_win
-    or api.nvim_open_win(M.diff_buf, false, {
-      row = 0,
-      col = 30 + 1, -- undotree width
-      height = 8,
-      width = 30 * 2,
-      style = 'minimal',
-      relative = 'tabline',
-    })
+    or (function()
+      local win = api.nvim_open_win(M.diff_buf, false, {
+        row = 0,
+        col = 30 + 1, -- undotree width
+        height = 8,
+        width = vim.o.columns - (30 + 1),
+        style = 'minimal',
+        relative = 'tabline',
+        border = { '', '', '', '', '─', '─', '─', '' },
+      })
+      vim.wo[win].winblend = 0
+      return win
+    end)()
 end
 
-M.render_diff =
-  u.debounce.debounce_trailing(150, u.debounce.throttle_by_id(2, vim.schedule_wrap(render_diff)))
+render_diff = vim.schedule_wrap(render_diff)
+M.render_diff = require('undotree-plus.debounce').debounce_trailing(100, render_diff)
 
 M.undotree_title = function(buf) return 'undotree://' .. tostring(buf) end
 
